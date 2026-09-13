@@ -1,7 +1,299 @@
 ---
 title: "Week 3: Monday Solutions"
+author: Harald Kugler
 ---
 
-## Exercise 1
+## Exercise 5.3
 
-Add the exercise and its solution here.
+Recall from Example 5.3 that for the log-normal outcome $Y$ given by $\log(Y) = \eta + \varepsilon$ with $\varepsilon \sim \mathcal{N}(0,\sigma^2),$ assumption **GA1** holds with $\mu(\eta) = e^{\eta + \sigma^2/2},$ assumption **GA2** holds with $\mathcal{V}(\mu) = \mu^2,$ and the dispersion parameter is $\varphi = e^{\sigma^2}-1.$ We write $\tilde{\eta} = \eta + \sigma^2/2$ throughout, so that $\mu(\tilde{\eta}) = e^{\tilde{\eta}}.$
+
+#### 1.
+
+We must identify the exponential dispersion model with mean value function $\mu(\tilde \eta) = e^{\tilde\eta}$ and variance function $\mathcal{V}(\mu) = \mu^2.$ By Example 4.4 the exponential dispersion model with quadratic variance function is the Gamma model, for which the canonical parameter is
+$$
+\theta = -\frac{1}{\mu}, \qquad \theta \in I = (-\infty, 0),
+$$
+with unit cumulant function
+$$
+\kappa(\theta) = -\log(-\theta).
+$$
+We verify that this is indeed the right model by differentiating,
+$$
+\kappa'(\theta) = -\frac{1}{\theta} = \mu, \qquad \kappa''(\theta) = \frac{1}{\theta^2} = \mu^2 = \mathcal{V}(\mu).
+$$
+
+Note that the mean value function $\mu(\tilde\eta) = e^{\tilde\eta}$ corresponds to the link function $g(\mu) = \log(\mu),$ which is not the canonical link $\theta(\mu) = -1/\mu$ for the Gamma model. The model in question is thus the Gamma model with log-link.
+
+To compute the unit deviance we use that $y \in J = (0,\infty)$ so that $\theta(y) = -1/y$ is well defined. Note first that
+$$
+\kappa(\theta(y)) = -\log\left(\frac{1}{y}\right) = \log(y), \qquad \kappa(\theta(\mu)) = \log(\mu),
+$$
+and therefore
+$$
+\begin{align*}
+d(y, \mu) &= 2 \big( y(\theta(y) - \theta(\mu)) - \kappa(\theta(y)) + \kappa(\theta(\mu)) \big) \\
+&= 2 \left( y \left( -\frac{1}{y} + \frac{1}{\mu} \right) - \log(y) + \log(\mu) \right) \\
+&= 2 \left( -1 + \frac{y}{\mu} + \log\left(\frac{\mu}{y}\right) \right) \\
+&= 2 \left( \log\left(\frac{\mu}{y}\right) + \frac{y}{\mu} - 1 \right),
+\end{align*}
+$$
+as claimed. 
+
+The coefficient of variation is constant,
+$$
+\frac{\sqrt{\mathbf{V}(Y)}}{\mu} = \frac{\sqrt{\varphi \mu^2}}{\mu} = \sqrt{\varphi},
+$$
+which is the property the Gamma model shares with the log-normal model.
+
+#### 2.
+
+Fixing $y = 1$ we get
+$$
+d(1, e^{\tilde \eta}) = 2\left(\log\left(e^{\tilde\eta}\right) + e^{-\tilde\eta} - 1 \right) = 2\left(\tilde \eta + e^{-\tilde \eta} - 1\right),
+$$
+which we plot together with $\tilde\eta \mapsto \tilde\eta^2$ on $(-2,2).$
+
+```{r}
+#| message: false
+#| warning: false
+library(ggplot2)
+library(dplyr)
+
+unit_dev <- function(y, mu) {
+  2 * (log(mu / y) + y / mu - 1)
+}
+
+etas <- seq(-2, 2, by = 0.001)
+df_dev <- tibble(
+  eta = rep(etas, 2),
+  value = c(unit_dev(1, exp(etas)), etas^2),
+  fun = rep(c("d(1, exp(eta))", "eta^2"), each = length(etas))
+)
+ggplot(df_dev, aes(x = eta, y = value, color = fun)) + geom_line() +
+  xlab(expression(tilde(eta))) + ylab("") +
+  theme_bw()
+```
+
+The two curves are indistinguishable close to $\tilde \eta = 0$ and start to deviate as $|\tilde\eta|$ grows. The deviation is clearly asymmetric: the squared error is symmetric around $0$ while the unit deviance is not.
+
+For the general statement, fix $y > 0$ and introduce
+$$
+t \coloneqq \log(y) - \tilde \eta.
+$$
+Then $y/e^{\tilde\eta} = e^{\log(y) - \tilde \eta} = e^{t}$ and $\log(e^{\tilde \eta}/y) = -t,$ so that the unit deviance has the exact expression
+$$
+d(y, e^{\tilde \eta}) = 2\left(e^{t} - t - 1\right).
+$$
+Inserting the Taylor expansion $e^t = 1 + t + t^2/2 + t^3/6 + \ldots$ gives
+$$
+d(y, e^{\tilde \eta}) = 2 \left( \frac{t^2}{2} + \frac{t^3}{6} + \ldots \right) = t^2 + \frac{t^3}{3} + \ldots = t^2 + o(t^2),
+$$
+that is,
+$$
+d(y, e^{\tilde \eta}) = (\log(y) - \tilde \eta)^2 + o\big((\log(y) - \tilde\eta)^2\big).
+$$
+This also explains the plot above, which is the special case $y = 1,$ where $t = -\tilde\eta.$
+
+The least squares fit of the log-normal model minimizes $\sum_{i=1}^n (\log(y_i) - \tilde\eta_i)^2,$ while the IWLS fit of the Gamma model with log-link minimizes the total deviance $\sum_{i=1}^n d(y_i, e^{\tilde\eta_i}).$ The expansion shows that the two loss functions agree to second order in the log-scale residuals, so the two fits will be close whenever those residuals are small and will only differ noticeably when some of them are large. We return to this in Exercise 5.4.
+
+## Exercise 5.4
+
+This exercise is on the Danish fire insurance data. We remove claims larger than 10 millions to avoid numerical problems.
+
+```{r}
+#| message: false
+#| warning: false
+library(RwR)
+library(gridExtra)
+library(broom)
+
+data(claims, package = "RwR")
+claims <- claims[claims$claims < 1e7, ]
+```
+
+#### 1.
+
+We refit the linear, additive model
+$$
+\mathbf{E}[\log(Y_i)] = \beta_0 + \beta_{X_{i,\texttt{grp}}} + \beta_{\texttt{sum}} \log X_{i,\texttt{sum}}
+$$
+on the reduced data set and construct diagnostic plots.
+
+```{r}
+claimslm <- lm(log(claims) ~ log(sum) + grp, data = claims)
+
+lm1Res <- augment(claimslm)
+p1 <- ggplot(lm1Res, aes(.fitted, .std.resid)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "loess", formula = y ~ x) +
+  xlab("Fitted values") +
+  ylab("Standardized residuals") +
+  theme_bw()
+p2 <- ggplot(lm1Res, aes(sample = .std.resid)) +
+  geom_qq() + geom_abline() +
+  xlab("Theoretical quantiles") +
+  ylab("") +
+  theme_bw()
+grid.arrange(p1, p2, ncol = 2)
+```
+
+There is no strong evidence against **A1** or **A2**, though the loess curve bends slightly upwards at the left edge. Few observations have such small fitted values and the confidence band is correspondingly wide there, so we do not read much into it. The distribution of the residuals is, however, clearly right-skewed, so the outcome distribution seems poorly modeled by a normal distribution and **A3** is questionable.
+
+#### 2.
+
+With the log-link we have $\mu(\eta) = e^{\eta},$ hence $\mu'(\eta) = e^{\eta},$ and with the quadratic variance function $\mathcal{V}(\mu) = \mu^2$ we get $\mathcal{V}(\mu(\eta)) = e^{2\eta}.$ By Theorem 5.1 the weights in the IWLS algorithm (where $\varphi = 1$) are
+$$
+w_{ii} = \frac{\mu'(\eta_i)^2}{\mathcal{V}(\mu(\eta_i))} = \frac{e^{2\eta_i}}{e^{2\eta_i}} = 1
+$$
+for all $i,$ independently of $\beta.$ The IWLS algorithm thus reduces to ordinary (unweighted) least squares on the working outcomes in each iteration.
+
+#### 3.
+
+As shown in Exercise 5.3, the generalized linear model with log-link and quadratic variance function is the Gamma model with log-link, so we fit
+$$
+\log \mathbf{E}[Y_i] = \beta_0 + \beta_{X_{i,\texttt{grp}}} + \beta_{\texttt{sum}} \log X_{i,\texttt{sum}}.
+$$
+
+```{r}
+claimsGlm <- glm(claims ~ log(sum) + grp, data = claims,
+                 family = Gamma(link = "log"))
+summary(claimsGlm)
+```
+
+We investigate the model fit by plotting the deviance and the Pearson residuals against the fitted values.
+
+```{r}
+claims_diag <- augment(claimsGlm, type.predict = "response")
+claims_diag$pearson_resid <- residuals(claimsGlm, type = "pearson")
+
+p1 <- ggplot(claims_diag, aes(x = .fitted, y = .resid)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "loess", formula = y ~ x) +
+  xlab("Fitted values") +
+  ylab("Deviance residuals") +
+  theme_bw()
+p2 <- ggplot(claims_diag, aes(x = .fitted, y = pearson_resid)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "loess", formula = y ~ x) +
+  xlab("Fitted values") +
+  ylab("Pearson residuals") +
+  theme_bw()
+grid.arrange(p1, p2, ncol = 2)
+```
+
+If the variance function is correctly specified, the Pearson residuals should be homoscedastic. The plot is dominated by a small number of very large residuals, which compresses the bulk of the points, but we see no systematic trend in the spread and so do not reject the quadratic mean-variance relation.
+
+We compare the fitted values with those from the log-normal model by plotting them for each group on a log-log scale.
+
+```{r}
+lm_pred <- predict(claimslm, se.fit = TRUE)
+glm_pred <- predict(claimsGlm, se.fit = TRUE, type = "link")
+
+df_pred <- cbind(
+  rbind(claims, claims),
+  rbind(
+    data.frame(fit = exp(lm_pred$fit),
+               upper = exp(lm_pred$fit + 1.96 * lm_pred$se.fit),
+               lower = exp(lm_pred$fit - 1.96 * lm_pred$se.fit),
+               model = "Log-normal LM"),
+    data.frame(fit = exp(glm_pred$fit),
+               upper = exp(glm_pred$fit + 1.96 * glm_pred$se.fit),
+               lower = exp(glm_pred$fit - 1.96 * glm_pred$se.fit),
+               model = "Gamma GLM")
+  )
+)
+
+ggplot(df_pred, aes(sum, claims)) +
+  geom_point(alpha = .5) +
+  geom_line(aes(y = fit, col = model)) +
+  geom_ribbon(aes(ymax = upper, ymin = lower, col = model), alpha = .1) +
+  scale_y_log10() +
+  scale_x_log10() +
+  facet_grid(~ grp) +
+  theme_bw() +
+  theme(legend.position = "bottom")
+```
+
+We see that it looks like the log-normal model fits the data better, but
+this is not surprising as in the log-normal we directly model the
+log(claims) and the glm instead tries to predict the actual claims
+(which have then been log transformed in the plot above). The mismatch
+between the red and the blue regression lines is a simple consequence of
+Jensen inequality, 
+$$
+\log \mathbf{E}[Y \mid X] \geq \mathbf{E}[\log(Y) \mid X]
+$$
+ It is hard to prefer one fit over the other on the basis of these plots alone.
+
+#### 4.
+
+An alternative is the log-gamma model, where the log-outcome is assumed to be gamma distributed. This is a generalized linear model with a gamma outcome and the identity link.
+
+```{r}
+claimsGlm2 <- glm(log(claims) ~ log(sum) + grp, data = claims,
+                  family = Gamma(link = "identity"))
+summary(claimsGlm2)
+```
+
+Again we plot the deviance and Pearson residuals against the fitted values.
+
+```{r}
+claims2_diag <- augment(claimsGlm2, type.predict = "response")
+claims2_diag$pearson_resid <- residuals(claimsGlm2, type = "pearson")
+
+p1 <- ggplot(claims2_diag, aes(x = .fitted, y = .resid)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "loess", formula = y ~ x) +
+  xlab("Fitted values") +
+  ylab("Deviance residuals") +
+  theme_bw()
+p2 <- ggplot(claims2_diag, aes(x = .fitted, y = pearson_resid)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "loess", formula = y ~ x) +
+  xlab("Fitted values") +
+  ylab("Pearson residuals") +
+  theme_bw()
+grid.arrange(p1, p2, ncol = 2)
+```
+
+The same mild upward bend at small fitted values appears here as in part 1, which is unsurprising since all three models share the linear predictor. We cannot rule out a mild nonlinearity in $\log X_{\texttt{sum}}$ on this basis alone, but there is no other systematic trend in the residuals, and the Pearson residuals show no clear sign of heteroscedasticity.
+
+#### 5.
+
+If a random variable $Y$ has continuous distribution function $F,$ then $F(Y)$ is uniformly distributed on $(0,1).$ We therefore transform the outcomes by the fitted distribution function under each of the two models and compare the resulting quantiles with those of the uniform distribution on $(0,1).$
+
+For the log-normal model the fitted distribution of $\log(Y_i)$ is $\mathcal{N}(\hat\mu_i, \hat\sigma^2).$ For the log-gamma model, recall from Example 4.4 that the shape parameter is $1/\hat\varphi$ and the rate parameter is $1/(\hat\varphi \hat \mu_i).$
+
+```{r}
+residTrans1 <- pnorm(log(claims$claims),
+                     mean = fitted(claimslm),
+                     sd = sigma(claimslm))
+
+psihat <- summary(claimsGlm2)$dispersion
+residTrans2 <- pgamma(log(claims$claims),
+                      shape = 1 / psihat,
+                      rate = 1 / (psihat * fitted(claimsGlm2)))
+
+df1 <- data.frame(theoretical = ppoints(length(residTrans1)),
+                  empirical = sort(residTrans1))
+df2 <- data.frame(theoretical = ppoints(length(residTrans2)),
+                  empirical = sort(residTrans2))
+
+p1 <- ggplot(df1, aes(x = theoretical, y = empirical)) +
+  geom_point(size = 0.9) +
+  geom_abline(slope = 1, intercept = 0, color = "blue") +
+  ggtitle("Normal outcome") +
+  xlab("Theoretical uniform quantiles") +
+  ylab("Empirical quantiles") +
+  theme_bw()
+p2 <- ggplot(df2, aes(x = theoretical, y = empirical)) +
+  geom_point(size = 0.9) +
+  geom_abline(slope = 1, intercept = 0, color = "blue") +
+  ggtitle("Gamma outcome") +
+  xlab("Theoretical uniform quantiles") +
+  ylab("") +
+  theme_bw()
+grid.arrange(p1, p2, ncol = 2)
+```
+
+The pp-plot for the normal model deviates visibly from the diagonal, consistent with the right-skewed residuals we saw in part 1. The gamma outcome distribution fits noticeably better, and we prefer the log-gamma model.
