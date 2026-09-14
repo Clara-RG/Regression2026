@@ -1,7 +1,121 @@
 ---
 title: "Week 3: Wednesday Solutions"
+author: Harald Kugler
 ---
 
-## Exercise 1
 
-Add the exercise and its solution here.
+```{r}
+#| message: false
+#| warning: false
+library(ggplot2)
+library(tibble)
+library(broom)
+library(splines)
+library(gridExtra)
+```
+
+## Exercise 7.1
+
+This is a continuation of Exercise 2.1. We simulate the data set.
+
+```{r}
+set.seed(04022016)
+factor_labels <- rep(c("A", "B", "C"), each = 50)
+formula_data <- tibble(
+    x =  rnorm(150, 0),
+    z = factor(sample(factor_labels)),
+    mu = (z == "A") + cos(x) + 0.5 * (z == "B") * sin(x),
+    y = rnorm(150, mu, 0.5)
+)
+```
+
+#### 1.
+
+We must determine the number of columns of the model matrix for the formula `y ~ ns(x, df = 4) * z` and interpret them. Recall that in a formula the operator `*` expands as
+$$
+b * c = b + c + b:c,
+$$
+so the formula includes the main effects of the basis expansion and of the factor as well as all their interactions. The columns are therefore
+
+- $1$ column for the intercept,
+- $4$ columns for the natural cubic spline basis functions of $x,$
+- $2$ columns for the dummy variable encoding of `z`, which has $3$ levels,
+- $2 \cdot 4 = 8$ columns for the interactions between the two dummy variables and the four basis functions,
+
+for a total of $15$ columns. The interaction columns are what allow the nonlinear effect of $x$ to differ between the three groups: within group $A$ (the base level) the effect of $x$ is given by the four main effect coefficients alone, while for groups $B$ and $C$ the corresponding interaction coefficients are added on top.
+
+```{r}
+head(model.matrix(y ~ ns(x, df = 4) * z, formula_data))
+ncol(model.matrix(y ~ ns(x, df = 4) * z, formula_data))
+```
+
+#### 2.
+
+We fit the model and reproduce the figure. The left panel shows the data, the fitted values as solid lines and the true means as dashed lines. The right panel is a residual plot with a smooth added.
+
+```{r}
+#| fig-width: 10
+#| fig-height: 5
+#| message: false
+modelSplines <- lm(y ~ ns(x, df = 4) * z, data = formula_data)
+
+p1 <- ggplot(formula_data, aes(x, y, color = z)) +
+  geom_point() +
+  geom_line(aes(y = mu), linetype = 2) +
+  geom_line(aes(y = fitted(modelSplines))) +
+  theme_bw() +
+  theme(legend.position = "top")
+
+p2 <- ggplot(augment(modelSplines), aes(.fitted, .resid, color = z)) +
+  geom_point() +
+  geom_smooth(aes(x = .fitted, y = .resid), color = "blue") +
+  xlab("Fitted values") +
+  ylab("Residuals") +
+  theme_bw() +
+  theme(legend.position = "top")
+
+grid.arrange(p1, p2, ncol = 2)
+```
+
+The fitted curves follow the true means closely within each of the three groups, and in particular the model captures that the relation between $x$ and $y$ is nonlinear and that its shape differs between the groups. The residual smooth is essentially flat around zero, so there is no indication that the mean value assumption **A1** is violated, and the spread of the residuals looks roughly constant across the range of fitted values, so **A2** is plausible as well.
+
+## Exercise 7.2
+
+Consider the following matrices
+
+```{r}
+X <- splines::bs(
+    seq(0, 1, 0.01),
+    knots = c(0.3, 0.5, 0.7)
+)
+X_prime <- seq(0, 1, 0.01)
+```
+
+of $B$-spline basis functions evaluated on a grid in $[0,1].$ By Exercise 2.3, `X_prime` lies in the column space of `X` if there is a $\mathbf{C}$ with $\mathbf{X}' = \mathbf{X}\mathbf{C},$ and in that case
+
+$$
+\mathbf{C} = \left(\mathbf{X}^\top\mathbf{X}\right)^{-1}\mathbf{X}^\top\mathbf{X}'.
+$$
+We can therefore verify the claim by checking that the following expression is numerically zero.
+
+```{r}
+max(abs(X %*% solve(t(X) %*% X) %*% t(X) %*% X_prime - X_prime))
+```
+
+Since it holds up to numerical error, we know that $\mathbf{X}' = \mathbf{X}\mathbf{C}$ with $\mathbf{C} \in \mathbb{R}^6.$ We can also view this as a regression problem, where $\mathbf{C}$ plays the role of the parameter vector (usually denoted $\beta$) and where the noise is zero. It is then enough to check that all residuals are zero up to numerical error.
+
+```{r}
+fit <- lm.fit(X, X_prime)
+
+max(abs(fit$residuals))
+# or, equivalently
+max(abs(fit$fitted.values - X_prime))
+```
+
+Finally, we check that $\mathbf{C}$ really is the parameter vector estimated by `lm.fit()`.
+
+```{r}
+C <- solve(t(X) %*% X) %*% t(X) %*% X_prime
+max(abs(C - fit$coefficients))
+```
+
