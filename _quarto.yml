@@ -5,6 +5,7 @@ project:
     - index.qmd
     - "week-*/solutions-*.qmd"
     - "week-*/kasper-solutions/solutions-*.qmd"
+    - "/exam assignments"
 
 website:
   title: "Regression 2026"
