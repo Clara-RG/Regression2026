@@ -29,6 +29,22 @@ Apply this rule to substantive insertions in document formats such as Quarto and
 Markdown. Ensure the label is visible in the rendered document; a source-code
 comment or hidden metadata does not satisfy the rule.
 
+When the document format supports color, display the entire Codex-authored
+suggestion, including the label, in a color distinct from the user's text. For
+Quarto documents rendered to HTML, use blue (`#1f77b4`) by default and wrap each
+contiguous suggestion in a fenced div:
+
+```markdown
+::: {style="color: #1f77b4;"}
+Suggested by codex: The suggested text goes here.
+:::
+```
+
+Keep equations, lists, code, and multiple paragraphs inside the same colored
+fenced div when they form one contiguous suggestion. If the target output does
+not support this syntax, use the closest reliable color mechanism for that
+format. If color is unavailable, retain the visible `Suggested by codex:` label.
+
 If the user asks to improve or correct existing text, leave that text unchanged
 and place the labeled suggestion immediately after it. If Codex previously
 replaced user-authored content and the original is recoverable, restore the
