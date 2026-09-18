@@ -1,7 +1,166 @@
 ---
-title: "Week 4: Wednesday Solutions"
+title: "Week 4"
+author: "Clara Rosengaard Groth"
 ---
 
-## Exercise 1
+## Exercise 8.1
 
-Add the exercise and its solution here.
+```{r}
+set.seed(42)
+data(gapminder, package = "RwR")
+head(gapminder)
+```
+
+We will consider a linear model of the form
+$$m(x) = \mathbb{E}(\text{Life} \mid \text{GDP} = x) = \beta_0 + \sum_{d=1}^{\text{df}}\beta_d h_d(x)$$
+
+where $m$ is a natural cubic spline. When answering the questions below, use the squared error loss function.
+
+### 8.1.1
+
+We fit the models in accordance to the conditional mean given above using natural cubic splines.
+
+```{r}
+model1 <- lm(Life ~ ns(GDP, df = 1), data = gapminder)
+model2 <- lm(Life ~ ns(GDP, df = 2), data = gapminder)
+model4 <- lm(Life ~ ns(GDP, df = 4), data = gapminder)
+model8 <- lm(Life ~ ns(GDP, df = 8), data = gapminder)
+model16 <- lm(Life ~ ns(GDP, df = 16), data = gapminder)
+```
+
+
+To compute the training error, we use the function provided in section 8.5.1. Note that this uses the squared error as it was specified in the exercise description.
+
+```{r}
+train_err <- function(form, data) { 
+  model <- lm(form, data = data)
+  residuals(model)^2 |> mean()
+}
+
+forms <- list(
+  df1  = Life ~ ns(GDP, df = 1),
+  df2  = Life ~ ns(GDP, df = 2),
+  df4  = Life ~ ns(GDP, df = 4),
+  df8  = Life ~ ns(GDP, df = 8),
+  df16 = Life ~ ns(GDP, df = 16)
+)
+
+sapply(forms, train_err, data = gapminder)
+
+```
+
+We see that the training error decreases with the number of degrees of freedom. This is expected, as a more flexible model can fit more closely to the data. However, this does not mean that the model will generalize well, and we need to consider other metrics than the training error. 
+
+```{r, warning=FALSE, fig.width=10, fig.height=8}
+models <- list(
+  df1  = model1,
+  df2  = model2,
+  df4  = model4,
+  df8  = model8,
+  df16 = model16
+)
+
+model_aug <- models %>% lapply(augment, data = gapminder) %>% bind_rows(.id = "model") %>%
+  mutate(model = factor(model, levels = c("df1", "df2", "df4", "df8", "df16")))
+
+ggplot(model_aug, aes(x = GDP, y = Life)) +
+  geom_point() +
+  geom_line(aes(y = .fitted), linewidth = 0.7, linetype = "solid", color = "red") +
+  facet_wrap(~ model) +
+  theme_minimal()
+```
+
+Visually, the fit looks most appropriate for $\text{df} = 4$. For any degrees of freedom above that it looks like the model is overfitted, as the fitted line is quite "zig-zaggy", rather than just capturing the overall trend. However, for the models with $\text{df} = 1$ and $\text{df} = 2$, the model is not flexible enough to capture the trend; it is under-parametrized or underfitted.
+
+### 7.5.2
+
+This is done using the function provided in section 8.4.2.
+
+```{r}
+cv <- function(form, data, K = 10, M = 20) {
+    n <- nrow(data)
+    response <- all.vars(form)[1]
+    loss <- vector("list", M)
+    mu_hat <- numeric(n)
+    for(b in 1:M) {
+        # Generating the random subdivision into groups
+        group <- sample(rep(1:K, length.out = n))
+        for(i in 1:K) {
+            model <- lm(form, data = data[group != i, ])
+            mu_hat[group == i] <- predict(model, newdata = data[group == i, ])
+        }
+    loss[[b]] <- (data[, response] - mu_hat)^2
+    }
+    unlist(loss) |> mean()
+}
+
+```
+
+Using $M=1$ corresponds to repeating the 10-fold cross-validation one time (one random division into folds).
+
+```{r}
+sapply(forms, cv, data = gapminder, M=1, K=10)
+
+```
+
+
+Using 10-fold cross-validation, we see that the model with $\text{df}=4$ has the best predictive performance, as it has the lowest mean squared error loss. 
+
+### 8.1.3
+
+We repeat 10-fold cross-validation 100 times. As we found in the previous exercise, it was the model with $\text{df}=4$ that had the best predictive performance, we select this model. Inspired by the code from section 8.5.2, we plot the distribution using a violin-plot.
+
+```{r}
+err_hat <- vector("list", 100)
+
+for(m in seq_along(err_hat)) {
+  err_hat[[m]] <- tibble(cv = cv(forms$df4, data = gapminder, K = 10, M = 1))
+}
+
+err_hat <- bind_rows(err_hat)
+
+ggplot(err_hat, aes(x = "cv", y = cv)) +
+  geom_violin(fill = "grey80", color = "grey20", linewidth = 0.7) +
+  stat_summary(fun = mean, geom = "point", color = "blue", size = 3) +
+  labs(x = "Method", y = "Mean squared error") 
+```
+
+From the error distribution figure above, we see that the estimates are somewhat robust to the randomness in data splitting. Estimates are relatively centered around the mean (blue point). However, we can also see that a few of the estimates are above the value of the MSE for the model with $\text{df}=8$ from the previous exercise.
+
+### 8.1.4
+
+```{r}
+err_hat <- vector("list", 100)
+
+for(m in seq_along(err_hat)) {
+  err_hat[[m]] <- tibble(
+    K5   = cv(forms$df4, gapminder, K = 5,   M = 1),
+    K10  = cv(forms$df4, gapminder, K = 10,  M = 1),
+    K20  = cv(forms$df4, gapminder, K = 20,  M = 1),
+    K50  = cv(forms$df4, gapminder, K = 50,  M = 1),
+    K100 = cv(forms$df4, gapminder, K = 100, M = 1)
+  )
+}
+
+err_hat <- bind_rows(err_hat)
+err_hat_long <- err_hat %>%
+  pivot_longer(
+    everything(),
+    names_to = "K",
+    values_to = "cv"
+  ) %>%
+  mutate(K = factor(K, levels = c("K5", "K10", "K20", "K50", "K100")))
+
+ggplot(err_hat_long, aes(x = K, y = cv)) +
+  geom_violin(fill = "grey80", color = "grey20",linewidth = 0.7) +
+  stat_summary(fun = mean, geom = "point", color = "blue", size = 3) +
+  labs(x = "K", y = "Mean squared error")
+```
+
+From the figure above, we see that the estimates become more robust to the randomness introduced by data splitting as $K$ increases. For small $K$, each fitted model is also fitted on a smaller proportion of the data, which introduces bias when estimating the generalization error of the model fitted on the full dataset. Recall that for leave-one-out cross-validation, data splitting is deterministic.
+
+Furthermore, from section 8.4.2 we know that the computation time increases with the size of $K$, making it computationally heavy to increase $K$ for large datasets. There is therefore a trade-off between robustness to data splitting, bias and computational cost.
+
+
+
+
