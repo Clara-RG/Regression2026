@@ -1,7 +1,203 @@
 ---
-title: "Week 4: Monday Solutions"
+title: "Week 4"
+author: "Clara Rosengaard Groth"
+date: "2026-09-17"
 ---
+## Exercise 7.5
 
-## Exercise 1
+```{r, include=FALSE}
+library(RwR)
+library(dplyr)
+library(tidyverse)
+library(RwR)
+library(ggplot2)
+library(tibble)
+library(broom)
+library(splines)
+library(gridExtra)
+theme_set(theme_bw())
+```
 
-Add the exercise and its solution here.
+
+```{r}
+data(TitanicSurvival, package = "carData")
+titanic <- TitanicSurvival %>% filter(!is.na(age))
+```
+
+
+
+### 7.5.1
+
+We fit the additive logistic regression model i.e. the GLM with conditional mean
+
+$$\mathbb{P}(Y_i =1 \mid X_i) = g^{-1}(\beta_0 + \beta_{X_i, \text{sex}} + \beta_{X_i, \text{class}} + \beta_{\text{age}}X_{i, \text{age}}), \quad i \in \{1,...,n\}$$
+
+where $g$ is the logit-function and $Y_i = 1$ if passenger $i$ survived. We assume the response is Bernoulli distributed. This is implemented in R calling `glm()`. Note that under family we select Binomial, as the Bernoulli distribution is just a special case of the Binomial distribution.
+
+```{r}
+logit_add <- glm(survived ~  sex + passengerClass + age, data = titanic, family = binomial(link = "logit"))
+
+coef(logit_add)
+```
+
+Note that the estimates are given on the log-odds scale. The baseline group is taken to be female passengers travelling on first class of age 0, and the other coefficients are as contrasts to that. 
+
+The interpretation of the coefficients are as follows: keeping all other variables constant, the log-odds of surviving decreases by approximately 2.5 if you are male. Furthermore, the log-odds of surviving decreases by approximately 1.3 if you travel on second class, and by 2.3 if you travel on third class compared to travelling on first class. Lastly, the log-odds of surviving decreases with 0.03 for each additional year of age. 
+
+### 7.5.2
+
+To assess the model fit, we plot the Pearson residuals. 
+
+```{r, warning=FALSE, fig.width=10, fig.height=10}
+qplot(fitted(logit_add), residuals(logit_add, type = "pearson")) +
+xlab("Fitted values") +
+ylab("Pearson residuals") + geom_smooth()
+
+```
+
+Note that $Y$ can be either $1$ or $0$, and it is therefore "normal" that the residuals forms these two branches. We would like the smoothed line to be centered around zero with no obvious systematic patterns (GA1), and the spread of the residuals should be homoscedasticity (GA2). However it seems like, there might be a slight u-bend of the smoothed line, and this would violate GA1.  
+
+To further investigate if this indeed is a reasonable residual plot for the given model, we simulate data from our fitted model. This is done using `simulate()`.
+
+```{r, warning=FALSE, fig.width=10, fig.height=10}
+set.seed(42)
+B <- 4
+p <- list()
+
+for (b in 1:B) {
+  titanic$y <- simulate(logit_add)[, 1]
+  sim_glm_tmp <- glm(y ~ sex + passengerClass + age, data = titanic, family = binomial(link = "logit"))
+  sim_tmp_diag <- augment(sim_glm_tmp, type.residuals = "pearson")
+  p[[b]] <- ggplot(sim_tmp_diag, aes(.fitted, .resid)) + geom_point() +
+  xlab("Fitted values") + ylab("Pearson residuals") + geom_smooth()
+}
+
+
+grid.arrange(grobs=p, ncol = B/2)
+```
+
+If data was indeed sampled from a Bernoulli distribution with mean as specified above, we would expect the simulated residual plots to resemble the original, both in terms of range of the residuals, the look of the smoothed line etc. 
+However, in the observed residual plot we saw a curve in the smoother, that is not present in the simulated residual plots. This suggests that the additive model does not adequately capture the conditional mean structure. 
+From the figure in the exercise description we also saw, that there might be a nonlinear relation between age and the probability of survival, which supports our findings.  
+
+### 7.5.3
+
+We fit the extended model with all possible interactions.
+
+```{r}
+logit_int <- glm(survived ~  sex*passengerClass*age, data = titanic, family = binomial(link = "logit"))
+
+```
+
+To assess the model, we plot the Pearson residuals as we did for the additive model.
+
+```{r, warning=FALSE, fig.width=10, fig.height=10}
+p <- qplot(fitted(logit_int), residuals(logit_int, type = "pearson")) +
+xlab("Fitted values") +
+ylab("Pearson residuals") + geom_smooth()
+
+pzoom <- qplot(fitted(logit_int), residuals(logit_int, type = "pearson")) +
+xlab("Fitted values") +
+ylab("Pearson residuals") + geom_smooth() + ylim(-4,4)
+
+grid.arrange(p, pzoom, ncol = 2)
+
+```
+
+Compared to the additive model, the interaction model residuals looks more reasonable. Besides from one large residual (the second figure shows the residuals on a more appropriate scale), the smoothed line shows no systematic structure and is closer to zero. This suggests that the interaction terms improved the model fit.  
+
+### Exercise 7.5.4
+
+In the previous exercise we fitted `sex*passengerClass*age` which essentially contains all possible main effects, two-way interaction term and the three-way interaction term. Calling `anova()` on the extended model, gives an analysis of deviance. Starting from the null model (intercept only) R adds terms sequentially and uses likelihood-ratio tests to assess whether each added term significantly improves the model compared to the model containing all prior terms. For each added term, the null hypothesis is that the additional term does not improve the model fit, conditional on the terms already included in the model. Note that this means, that the analysis can depend on the order of the terms.
+
+```{r}
+anova(logit_int, test = "LRT")
+
+```
+
+From the Analysis of Deviance table above, we see that adding all terms (in this order) except the three-way interaction term results in a significantly improved model fit.
+
+But should we just choose what variables to be included from an output like this? From chapter 3: 
+
+*"The inclusion of interactions results in a substantial increase in the complexity of the models, even if we have only a few predictors. Moreover, it becomes possible to construct an overwhelming number of comparisons of models. Searching haphazardly through thousands of models with various combinations of interactions is not recommended."*
+
+... so long story short, due to overfitting and multiple testing we should not test all combinations of interaction terms blindly. Usually, using some domain knowledge is recommended! Ask first; are there any plausible reasons there could be an interaction effect between two variables? 
+
+
+### 7.5.5
+
+First we fit the model using natural cubic splines on age.
+
+```{r}
+logit_spline <- glm(survived ~  sex*passengerClass*ns(age, df = 3), data = titanic, family = binomial(link = "logit"))
+
+```
+
+Then we predict the probability of survival using `predict()`. Note that when we use the `type = "link"` argument, the predicted values are the linear predictor values $\eta_i$, and these needs to be transformed using the inverse of the link function, to get the predicted probability.
+
+```{r, warning=FALSE, fig.width=15, fig.height=5}
+invlogit <- function(x) exp(x)/(1 + exp(x))
+
+predFrame <- expand.grid(
+  age = seq(
+    min(titanic$age, na.rm = TRUE),
+    max(titanic$age, na.rm = TRUE),
+    length.out = 200
+  ),
+  sex = levels(titanic$sex),
+  passengerClass = levels(titanic$passengerClass)
+)
+
+
+predSpline <- predict(logit_spline, newdata = predFrame, type = "link",se.fit = TRUE)
+
+predFrameSpline <- cbind(predFrame, fit = predSpline$fit, se.fit = predSpline$se.fit)
+
+
+p_pred <- ggplot(predFrameSpline,
+  aes(x = age, y = invlogit(fit), color = sex, fill = sex)) +
+  geom_ribbon(aes(
+      ymin = invlogit(fit - 1.96 * se.fit),
+      ymax = invlogit(fit + 1.96 * se.fit)),
+    alpha = 0.2,
+    color = NA) +
+  geom_line(linewidth = 1.2) +
+  facet_wrap(~ passengerClass) +
+  labs(x = "Age", y = "Predicted survival probability", color = "Sex", fill = "Sex") 
+
+p_pred
+```
+
+```{r, warning=FALSE, fig.width=15, fig.height=5}
+predFrame <- expand.grid(
+  age = seq(
+    min(titanic$age, na.rm = TRUE),
+    max(titanic$age, na.rm = TRUE),
+    length.out = 200
+  ),
+  sex = levels(titanic$sex),
+  passengerClass = levels(titanic$passengerClass)
+)
+
+
+predInt <- predict(logit_int, newdata = predFrame, type = "link",se.fit = TRUE)
+
+predFrameInt <- cbind(predFrame, fit = predInt$fit, se.fit = predInt$se.fit)
+
+p_pred2 <- ggplot(predFrameInt,
+  aes(x = age, y = invlogit(fit), color = sex, fill = sex)) +
+  geom_ribbon(aes(
+      ymin = invlogit(fit - 1.96 * se.fit),
+      ymax = invlogit(fit + 1.96 * se.fit)),
+    alpha = 0.2,
+    color = NA) +
+  geom_line(linewidth = 1.2) +
+  facet_wrap(~ passengerClass) +
+  labs(x = "Age", y = "Predicted survival probability", color = "Sex", fill = "Sex") 
+
+p_pred2
+
+```
+
+From the figures above, we see that the difference between the predicted survival probability between the two models are quite different. This is expected, as age enters linearly on the logit scale for the interaction model, but for the spline model age is allowed to vary non-linearly with age on the logit scale. 
+
